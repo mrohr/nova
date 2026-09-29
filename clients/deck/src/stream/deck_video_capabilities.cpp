@@ -1,4 +1,5 @@
 #include "stream/deck_video_capabilities.h"
+#include "stream/deck_v4l2_decoder.h"
 #include <Limelight.h>
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -127,6 +128,17 @@ DeckVideoDecodeSupport detectVideoDecodeSupport() {
     av_hwdevice_ctx_create(&device, AV_HWDEVICE_TYPE_VAAPI, nullptr, nullptr, 0);
     auto support = probeVideoDecodeSupport(device);
     av_buffer_unref(&device);
-    return support;
+    return mergeDecodeSupport(support, probeV4l2DecodeSupport());
+}
+
+DeckVideoDecodeSupport mergeDecodeSupport(DeckVideoDecodeSupport vaapi, const DeckVideoDecodeSupport& v4l2) {
+    const auto larger = [](DeckDecodeLimits& kept, const DeckDecodeLimits& other) {
+        if (static_cast<long long>(other.maxWidth) * other.maxHeight > static_cast<long long>(kept.maxWidth) * kept.maxHeight)
+            kept = other;
+    };
+    larger(vaapi.h264, v4l2.h264);
+    larger(vaapi.hevc, v4l2.hevc);
+    larger(vaapi.main10, v4l2.main10);
+    return vaapi;
 }
 } // namespace nova::deck::stream

@@ -4,6 +4,7 @@
 #include "stream/deck_audio_output.h"
 #include "stream/deck_video_color.h"
 #include "stream/deck_video_capabilities.h"
+#include "stream/deck_v4l2_decoder.h"
 
 #include "stream/deck_gamestream_session_builder.h"
 #include "stream/deck_stream_core.h"
@@ -430,6 +431,7 @@ public:
 
 private:
     void resetDecoder();
+    bool openV4l2Decoder(int videoFormat, int width, int height);
 
     mutable std::mutex lifecycleMutex_;
     DeckRendererLifecycle lifecycle_{};
@@ -437,6 +439,7 @@ private:
     AVBufferRef* hardwareDevice_ = nullptr;
     AVCodecContext* codecContext_ = nullptr;
     AVFrame* decodedFrame_ = nullptr;
+    std::unique_ptr<DeckV4l2Decoder> v4l2_;
 #ifdef NOVA_DECK_BUILD_PYROWAVE
     std::unique_ptr<nova::pyrowave::Codec> pyrowave_;
 #endif

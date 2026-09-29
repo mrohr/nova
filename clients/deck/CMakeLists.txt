@@ -72,6 +72,7 @@ add_library(nova_deck_core STATIC
     src/stream/deck_stream_media_adapters.cpp
     src/stream/deck_video_color.cpp
     src/stream/deck_video_capabilities.cpp
+    src/stream/deck_v4l2_decoder.cpp
     src/stream/deck_audio_output.cpp
     src/stream/deck_audio_buffer.cpp
     src/stream/deck_audio_recovery.cpp
@@ -242,6 +243,10 @@ if(BUILD_TESTING)
         NOVA_DECK_HEVC_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/hevc-main-sdr.b64")
     add_test(NAME nova_deck_video_capabilities_test COMMAND nova_deck_video_capabilities_test)
     set_tests_properties(nova_deck_video_capabilities_test PROPERTIES TIMEOUT 20)
+    add_executable(nova_deck_v4l2_decoder_test tests/deck_v4l2_decoder_test.cpp)
+    target_link_libraries(nova_deck_v4l2_decoder_test PRIVATE nova_deck_core)
+    add_test(NAME nova_deck_v4l2_decoder_test COMMAND nova_deck_v4l2_decoder_test)
+    set_tests_properties(nova_deck_v4l2_decoder_test PROPERTIES TIMEOUT 20)
     add_executable(nova_deck_vaapi_capabilities_test tests/deck_vaapi_capabilities_test.cpp)
     target_link_libraries(nova_deck_vaapi_capabilities_test PRIVATE nova_deck_core)
     add_test(NAME nova_deck_vaapi_capabilities_test COMMAND nova_deck_vaapi_capabilities_test)

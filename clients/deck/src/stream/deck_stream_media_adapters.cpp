@@ -1110,7 +1110,7 @@ DeckLinuxMediaProbe DeckLinuxMediaProbe::detect() {
     av_log_set_level(AV_LOG_QUIET);
     const int hardwareDeviceResult = av_hwdevice_ctx_create(&hardwareDevice, AV_HWDEVICE_TYPE_VAAPI, nullptr, nullptr, 0);
     av_log_set_level(priorLogLevel);
-    const auto videoDecodeSupport = probeVideoDecodeSupport(hardwareDevice);
+    const auto videoDecodeSupport = mergeDecodeSupport(probeVideoDecodeSupport(hardwareDevice), probeV4l2DecodeSupport());
     if (hardwareDevice != nullptr) {
         av_buffer_unref(&hardwareDevice);
     }
@@ -1137,7 +1137,7 @@ DeckQrhiVaapiFrameLease::~DeckQrhiVaapiFrameLease() {
 }
 
 std::shared_ptr<DeckQrhiVaapiFrameLease> DeckQrhiVaapiFrameLease::cloneHardwareFrame(const AVFrame& frame) {
-    if (frame.format != AV_PIX_FMT_VAAPI) {
+    if (frame.format != AV_PIX_FMT_VAAPI && frame.format != AV_PIX_FMT_DRM_PRIME) {
         return nullptr;
     }
     AVFrame* clonedFrame = av_frame_clone(&frame);
@@ -1704,12 +1704,12 @@ int DeckVaapiFfmpegRenderer::setup(
         lifecycle_.lastRuntimeError = "av_hwdevice_ctx_create(VAAPI) failed: " + ffmpegErrorString(result);
         lifecycle_.runtimeStatus = lifecycle_.lastRuntimeError;
         resetDecoder();
-        return DR_NEED_IDR;
+        return openV4l2Decoder(videoFormat, width, height) ? DR_OK : DR_NEED_IDR;
     }
     if (!probeVideoDecodeSupport(hardwareDevice_).supports(videoFormat, width, height)) {
         lifecycle_.lastRuntimeError = "The VA-API device cannot decode this codec and stream size";
         resetDecoder();
-        return DR_NEED_IDR;
+        return openV4l2Decoder(videoFormat, width, height) ? DR_OK : DR_NEED_IDR;
     }
     lifecycle_.ownsHardwareDevice = true;
     lifecycle_.runtimeVaapiDeviceAvailable = true;
@@ -1755,6 +1755,24 @@ int DeckVaapiFfmpegRenderer::setup(
     lifecycle_.ownsCodecContext = true;
     ready_ = true;
     return DR_OK;
+}
+
+// ARM devices without a VA-API driver, such as Snapdragon handhelds with the
+// iris decoder, decode through V4L2 and present the same DMA-BUF frames.
+bool DeckVaapiFfmpegRenderer::openV4l2Decoder(const int videoFormat, const int width, const int height) {
+    auto decoder = std::make_unique<DeckV4l2Decoder>();
+    if (!decoder->open(videoFormat, width, height)) {
+        // Hosts with no V4L2 decoder keep the VA-API reason unchanged.
+        if (!decoder->deviceDescription().empty())
+            lifecycle_.lastRuntimeError += "; V4L2 " + decoder->deviceDescription() + ": " + decoder->error();
+        return false;
+    }
+    v4l2_ = std::move(decoder);
+    lifecycle_.ownsHardwareDevice = lifecycle_.ownsCodecContext = true;
+    lifecycle_.runtimeStatus = "V4L2 decoder " + v4l2_->deviceDescription() + "; DMA-BUF presentation";
+    lifecycle_.lastRuntimeError.clear();
+    ready_ = true;
+    return true;
 }
 
 void DeckVaapiFfmpegRenderer::start() {
@@ -1835,6 +1853,47 @@ int DeckVaapiFfmpegRenderer::submitDecodeUnit(PDECODE_UNIT decodeUnit) {
         return DR_OK;
     }
 #endif
+
+    if (v4l2_) {
+        // Wait up to one frame interval so a picture is shown on the submit
+        // that carried it, not one frame later.
+        const int waitMillis = std::clamp(1000 / std::max(lifecycle_.redrawRate, 1), 4, 34);
+        AVFrame* frame = nullptr;
+        const auto decoded = v4l2_->decode(bytes, waitMillis, &frame);
+        if (decoded == DeckV4l2Decoder::Result::Failed) {
+            lifecycle_.lastRuntimeError = v4l2_->error();
+            return DR_NEED_IDR;
+        }
+        observation.accepted = true;
+        lifecycle_.lastRuntimeError.clear();
+        // A stateful decoder has no picture before it has parsed the first
+        // sequence header; asking for another IDR would only delay it.
+        if (decoded == DeckV4l2Decoder::Result::Pending) return DR_OK;
+        const auto spec = videoDecoderSpec(lifecycle_.videoFormat);
+        const auto color = DeckVideoColorInfo::fromFrame(*frame);
+        if (!spec || color.bitDepth != spec->bitDepth || !color.yuv420) {
+            av_frame_free(&frame);
+            observation.accepted = false;
+            lifecycle_.lastRuntimeError = "Decoded bit depth or chroma does not match the requested video format";
+            return DR_NEED_IDR;
+        }
+        auto lease = DeckQrhiVaapiFrameLease::cloneHardwareFrame(*frame);
+        av_frame_free(&frame);
+        ++lifecycle_.decodedHardwareFrames;
+        lifecycle_.lastFrameWasHardwareBacked = lease && lease->valid();
+        const DeckQrhiVaapiPresentationDescriptor descriptor{
+            .width = lease ? lease->frame()->width : 0,
+            .height = lease ? lease->frame()->height : 0,
+            .redrawRate = lifecycle_.redrawRate,
+            .surfaceId = lease ? lease->surfaceId() : 0,
+            .hardwareBacked = lifecycle_.lastFrameWasHardwareBacked,
+            .frameLease = std::move(lease),
+            .source = "v4l2-" + std::string(spec->name),
+        };
+        if (previewFramePump_.enqueueDecodedFrame(descriptor) && previewFramePump_.flushNewest())
+            ++lifecycle_.presentedHardwareFrames;
+        return DR_OK;
+    }
 
     AVPacket* packet = av_packet_alloc();
     if (packet == nullptr) {
@@ -1918,6 +1977,8 @@ void DeckVaapiFfmpegRenderer::resetDecoder() {
 #ifdef NOVA_DECK_BUILD_PYROWAVE
     pyrowave_.reset();
 #endif
+    // Presented frames keep their buffers until the presenter releases them.
+    v4l2_.reset();
     if (decodedFrame_ != nullptr) {
         av_frame_free(&decodedFrame_);
     }

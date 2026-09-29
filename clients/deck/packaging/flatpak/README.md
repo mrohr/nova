@@ -49,6 +49,19 @@ commit pinned in `modules/libplacebo.json`. Its Jinja/MarkupSafe shader-generati
 sources are checksum-pinned build dependencies and are not installed in the app.
 No additional device or filesystem permission is required for this presenter.
 
+On devices without a VA-API driver, such as Snapdragon handhelds with the
+Qualcomm iris decoder, Nova decodes H.264 and HEVC through the kernel's V4L2
+stateful decoder and presents the same zero-copy DMA-BUF frames. Flatpak has no
+device permission for `/dev/video*` alone, so the aarch64 bundle CI builds
+adds `--device=all`. For a bundle built from the standard manifest, grant it
+once with:
+
+    flatpak override --user --device=all com.papi_ux.Nova
+
+This path drives the kernel decoder directly rather than through FFmpeg's
+decoders. It needs the kernel driver and its firmware; without them Nova
+reports no hardware decoder for that codec.
+
 Optionally register Nova with Steam on a Linux device, with Steam closed
 (use Desktop Mode on Steam Deck):
 

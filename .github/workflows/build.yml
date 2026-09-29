@@ -159,11 +159,19 @@ jobs:
           ref: ${{ github.sha }}
           submodules: recursive
 
+      # ARM handhelds without VA-API decode through V4L2 (Qualcomm iris). Flatpak has no
+      # device class for /dev/video*, so only this bundle adds --device=all; x86_64 keeps dri.
+      - name: Grant the aarch64 bundle the V4L2 decoder
+        run: |
+          cd clients/deck/packaging/flatpak
+          sed 's|"--device=dri",|"--device=dri",\n    "--device=all",|' com.papi_ux.Nova.json > com.papi_ux.Nova.aarch64.json
+          grep -q '"--device=all"' com.papi_ux.Nova.aarch64.json
+
       - name: Build the Linux aarch64 Flatpak bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: Nova-Linux-aarch64-alpha.flatpak
-          manifest-path: clients/deck/packaging/flatpak/com.papi_ux.Nova.json
+          manifest-path: clients/deck/packaging/flatpak/com.papi_ux.Nova.aarch64.json
           arch: aarch64
           # A release is built from its own tree every time; a cache keyed per commit never hits.
           cache: false
