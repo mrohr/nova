@@ -30,6 +30,16 @@ std::unique_ptr<QSettings> preferences(const QString& path) {
 }
 }
 
+QString deckFlatpakArch() {
+#if defined(__x86_64__)
+    return QStringLiteral("x86_64");
+#elif defined(__aarch64__)
+    return QStringLiteral("aarch64");
+#else
+    return {};
+#endif
+}
+
 std::optional<DeckUpdateCatalog> parseDeckUpdateCatalog(const QByteArray& bytes, const QString& channel) {
     if (bytes.size() > 16384) return {};
     const auto object = QJsonDocument::fromJson(bytes).object();
@@ -37,7 +47,8 @@ std::optional<DeckUpdateCatalog> parseDeckUpdateCatalog(const QByteArray& bytes,
     const QString version = object.value("version").toString();
     static const QRegularExpression versionPattern(QStringLiteral("\\Av[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?\\z"));
     if (object.value("appId") != "com.papi_ux.Nova" || object.value("channel").toString() != channel
-        || object.value("arch") != "x86_64" || !commit(revision) || version.size() > 80
+        || deckFlatpakArch().isEmpty() || object.value("arch").toString() != deckFlatpakArch()
+        || !commit(revision) || version.size() > 80
         || !versionPattern.match(version).hasMatch()) return {};
     return DeckUpdateCatalog{revision, version};
 }
@@ -62,7 +73,7 @@ DeckUpdates::DeckUpdates(DeckUpdateOptions options, QDBusConnection bus, QObject
     running_ = instance.value("Instance/app-commit").toString();
     local_ = running_;
     supported_ = instance.value("Application/name") == "com.papi_ux.Nova"
-        && instance.value("Instance/arch") == "x86_64"
+        && !deckFlatpakArch().isEmpty() && instance.value("Instance/arch").toString() == deckFlatpakArch()
         && commit(running_) && QStringList{"stable", "beta", "pyrowave"}.contains(options_.channel)
         && branch == options_.channel && QUrl(options_.feedUrl).scheme() == "https";
     if (!supported_) {

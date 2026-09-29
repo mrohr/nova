@@ -9,6 +9,10 @@
 
 namespace nova::deck::runtime {
 
+// The Flatpak architecture this binary was built for; empty on an unsupported CPU,
+// which leaves in-app updates off rather than installing another arch's build.
+QString deckFlatpakArch();
+
 struct DeckUpdateCatalog { QString commit, version; };
 std::optional<DeckUpdateCatalog> parseDeckUpdateCatalog(const QByteArray& bytes, const QString& channel);
 
