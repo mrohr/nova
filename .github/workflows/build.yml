@@ -141,6 +141,42 @@ jobs:
           # Long enough to re-run a failed release job without rebuilding the bundle.
           retention-days: 14
 
+  deck-flatpak-aarch64:
+    name: Linux Alpha Flatpak (aarch64)
+    needs: deck
+    # The standard bundle built natively for arm64 Linux handhelds such as SM8550 devices.
+    # It is kept as a workflow artifact only: it is not part of the release asset contract yet,
+    # and it has no NOVA_DECK_UPDATE_CHANNEL because the update feed publishes x86_64 only.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
+      options: --privileged
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+
+      - name: Build the Linux aarch64 Flatpak bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: Nova-Linux-aarch64-alpha.flatpak
+          manifest-path: clients/deck/packaging/flatpak/com.papi_ux.Nova.json
+          arch: aarch64
+          # A release is built from its own tree every time; a cache keyed per commit never hits.
+          cache: false
+          upload-artifact: false
+
+      - name: Keep the bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: nova-linux-aarch64-flatpak
+          path: Nova-Linux-aarch64-alpha.flatpak
+          if-no-files-found: error
+          retention-days: 14
+
   deck-flatpak-pyrowave:
     name: Linux PyroWave Alpha Flatpak
     needs: deck

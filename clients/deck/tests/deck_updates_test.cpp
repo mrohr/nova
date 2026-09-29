@@ -72,7 +72,7 @@ public:
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
-    const QJsonObject valid{{"appId", "com.papi_ux.Nova"}, {"channel", "beta"}, {"arch", "x86_64"}, {"commit", b}, {"version", "v1.4.13-beta.1"}};
+    const QJsonObject valid{{"appId", "com.papi_ux.Nova"}, {"channel", "beta"}, {"arch", deckFlatpakArch()}, {"commit", b}, {"version", "v1.4.13-beta.1"}};
     require(parseDeckUpdateCatalog(QJsonDocument(valid).toJson(), "beta").has_value(), "valid catalog refused");
     for (const auto& key : {"appId", "channel", "arch", "commit", "version"}) {
         auto invalid = valid; invalid[key] = "wrong";
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
     auto client = QDBusConnection::connectToBus(address, "update-client");
     QTemporaryDir dir; require(dir.isValid(), "temp settings");
     QFile file(dir.filePath("flatpak-info")); require(file.open(QIODevice::WriteOnly), "instance fixture");
-    file.write(("[Application]\nname=com.papi_ux.Nova\n[Instance]\narch=x86_64\nbranch=beta\napp-commit=" + a + "\n").toUtf8()); file.close();
+    file.write(("[Application]\nname=com.papi_ux.Nova\n[Instance]\narch=" + deckFlatpakArch() + "\nbranch=beta\napp-commit=" + a + "\n").toUtf8()); file.close();
     DeckUpdateOptions options;
     options.instanceFile = file.fileName(); options.settingsFile = dir.filePath("settings.ini");
     options.channel = "beta"; options.feedUrl = "https://127.0.0.1:1"; options.idleDelayMs = 40;
